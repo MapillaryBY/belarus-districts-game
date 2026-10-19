@@ -457,6 +457,7 @@
         }
 
         var currentTarget = null;
+        var currentTargetFeature = null;
         var gameOver = false;
         var geoLayer = null;
         var targetDisplay = document.getElementById('target-region');
@@ -470,14 +471,20 @@
         // ===== КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: универсальное получение имени =====
         // Overpass Turbo экспортирует теги OSM в properties.name (или name:ru/name:be).
         // Эта функция вытаскивает имя независимо от источника данных.
+        // Уникальный ключ района — поле name (не зависит от языка интерфейса)
+        function getRegionKey(feature) {
+            if (!feature || !feature.properties) return null;
+            return feature.properties.name || null;
+        }
+
+        // Отображаемое имя — name:ru или name:be в зависимости от языка, с fallback на name
         function getRegionName(feature) {
             if (!feature || !feature.properties) return null;
             var p = feature.properties;
-            // Приоритет: name:ru для русского, name:be для белорусского, иначе name
             var lang = getLang();
             if (lang === 'be' && p['name:be']) return p['name:be'];
             if (lang === 'ru' && p['name:ru']) return p['name:ru'];
-            return p.name || p['name:ru'] || p['name:be'] || null;
+            return p.name || null;
         }
 
         // Для отображения в интерфейсе используем то же имя
@@ -493,8 +500,7 @@
             document.getElementById('target-region').style.display = isDemo ? 'none' : 'block';
             document.getElementById('score').style.display = isDemo ? 'none' : 'block';
             document.getElementById('restart-btn').style.display = 'none';
-            document.getElementById('modetest').textContent = t('modeTest');
-            document.getElementById('modedemo').textContent = t('modeDemo');
+
             messageDisplay.textContent = '';
             messageDisplay.className = '';
             wikiInfo.style.display = 'none';
@@ -541,12 +547,14 @@
             document.title = t('title');
             document.getElementById('prompt-text').textContent = t('prompt');
             document.getElementById('restart-btn').textContent = t('restart');
+            document.getElementById('modetest').textContent = t('modeTest');
+            document.getElementById('modedemo').textContent = t('modeDemo');
             updateScore();
             if (messageDisplay && messageDisplay.dataset.key) {
                 messageDisplay.textContent = t(messageDisplay.dataset.key);
             }
-            if (currentTarget && currentMode === 'test' && !gameOver) {
-                targetDisplay.textContent = regionDisplayName(currentTarget);
+            if (currentTargetFeature && currentMode === 'test' && !gameOver) {
+                targetDisplay.textContent = regionDisplayName(getRegionName(currentTargetFeature));
             }
             if (typeof applyMode === 'function' && currentMode === 'demo') {
                 applyMode();
@@ -584,27 +592,27 @@
 
         // ===== Сбор имён из данных =====
         function getAllRegionNames() {
-            var names = [];
+            var items = [];
             geoLayer.eachLayer(function (l) {
-                var name = getRegionName(l.feature);
-                if (name) names.push(name);
+                var key = getRegionKey(l.feature);
+                if (key) items.push({ key: key, feature: l.feature });
             });
-            return names;
+            return items;
         }
 
         function pickNextRegion() {
             var stats = loadStats();
             var all = getAllRegionNames();
 
-            var neverAsked = all.filter(function (name) {
-                return !stats[name] || !stats[name].lastAsked;
+            var neverAsked = all.filter(function (item) {
+                return !stats[item.key] || !stats[item.key].lastAsked;
             });
             if (neverAsked.length > 0) {
                 return neverAsked[Math.floor(Math.random() * neverAsked.length)];
             }
 
-            var wrongOnes = all.filter(function (name) {
-                return stats[name] && stats[name].lastAsked && !stats[name].guessed;
+            var wrongOnes = all.filter(function (item) {
+                return stats[item.key] && stats[item.key].lastAsked && !stats[item.key].guessed;
             });
             if (wrongOnes.length > 0) {
                 return wrongOnes[Math.floor(Math.random() * wrongOnes.length)];
@@ -642,8 +650,9 @@
                 setTimeout(function () { resetGame(); }, 1500);
                 return;
             }
-            currentTarget = next;
-            targetDisplay.textContent = regionDisplayName(currentTarget);
+            currentTarget = next.key;
+            currentTargetFeature = next.feature;
+            targetDisplay.textContent = regionDisplayName(getRegionName(currentTargetFeature));
             updateScore();
         }
 
@@ -656,14 +665,14 @@
                     L.DomEvent.stopPropagation(e);
                     if (currentMode === 'demo') return;
                     if (gameOver) return;
-                    var clickedName = getRegionName(feature);
+                    var clickedKey = getRegionKey(feature);
                     var stats = loadStats();
 
-                    if (clickedName === currentTarget) {
+                    if (clickedKey === currentTarget) {
                         messageDisplay.textContent = t('win');
                         messageDisplay.className = 'win';
                         gameOver = true;
-                        loadWikiInfo(clickedName);
+                        loadWikiInfo(currentTarget);
                         layer.setStyle({ color: '#27ae60', weight: 3, fillColor: '#27ae60', fillOpacity: 0.25 });
 
                         if (!stats[currentTarget]) stats[currentTarget] = { guessed: false, lastAsked: null };
@@ -674,7 +683,7 @@
                         updateScore();
                         restartBtn.style.display = 'inline-block';
                     } else {
-                        messageDisplay.textContent = t('lose') + regionDisplayName(clickedName);
+                        messageDisplay.textContent = t('lose') + regionDisplayName(getRegionName(feature));
                         messageDisplay.className = 'lose';
                         gameOver = true;
                         loadWikiInfo(currentTarget);
@@ -685,9 +694,8 @@
                         stats[currentTarget].lastAsked = new Date().toISOString();
                         saveStats(stats);
 
-                         geoLayer.eachLayer(function (l) {
-                            var name = getRegionName(l.feature);
-                            if (name === currentTarget && typeof l.setStyle === 'function') {
+                        geoLayer.eachLayer(function (l) {
+                            if (getRegionKey(l.feature) === currentTarget && typeof l.setStyle === 'function') {
                                 l.setStyle({ color: '#27ae60', weight: 3, fillColor: '#27ae60', fillOpacity: 0.25 });
                             }
                         });
