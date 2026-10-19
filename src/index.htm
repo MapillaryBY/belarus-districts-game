@@ -111,6 +111,7 @@
         <div id="target-region">Загрузка...</div>
         <div id="score">✅ 0 &nbsp;|&nbsp; ❌ 0</div>
         <div id="message"></div>
+        <button id="show-btn" style="margin-top:8px; padding:6px 12px; font-size:13px; border:none; border-radius:6px; background:#f39c12; color:white; cursor:pointer;">Показать район</button>
         <div id="wiki-info"></div>
         <button id="restart-btn">Следующий</button>
         <div style="margin-top:8px; font-size:12px;">
@@ -407,6 +408,8 @@
                 win: 'Правильно!',
                 lose: 'Неправильно. Это был ',
                 restart: 'Следующий',
+                show: '👁 Показать район',
+                revealMsg: 'Запомнили ',
                 allDone: '🎉 Все районы угаданы!',
                 resetMsg: 'Статистика сброшена. Начинаем заново!',
                 loading: 'Загрузка...',
@@ -423,6 +426,8 @@
                 win: 'Правільна!',
                 lose: 'Няправільна. Гэта быў ',
                 restart: 'Наступны',
+                show: '👁 Паказаць раён',
+                revealMsg: 'Захавалі ў памяці ',
                 allDone: '🎉 Усе раёны адгаданы!',
                 resetMsg: 'Статыстыка скідзена. Пачынаем нанова!',
                 loading: 'Загрузка...',
@@ -463,6 +468,7 @@
         var targetDisplay = document.getElementById('target-region');
         var messageDisplay = document.getElementById('message');
         var restartBtn = document.getElementById('restart-btn');
+        var showBtn = document.getElementById('show-btn');
         var scoreDisplay = document.getElementById('score');
         var wikiInfo = document.getElementById('wiki-info');
         var MODE_KEY = 'belarus_rayons_mode';
@@ -500,6 +506,7 @@
             document.getElementById('target-region').style.display = isDemo ? 'none' : 'block';
             document.getElementById('score').style.display = isDemo ? 'none' : 'block';
             document.getElementById('restart-btn').style.display = 'none';
+            showBtn.style.display = isDemo ? 'none' : 'inline-block';
 
             messageDisplay.textContent = '';
             messageDisplay.className = '';
@@ -549,6 +556,7 @@
             document.getElementById('restart-btn').textContent = t('restart');
             document.getElementById('modetest').textContent = t('modeTest');
             document.getElementById('modedemo').textContent = t('modeDemo');
+            showBtn.textContent = t('show');
             updateScore();
             if (messageDisplay && messageDisplay.dataset.key) {
                 messageDisplay.textContent = t(messageDisplay.dataset.key);
@@ -630,6 +638,7 @@
             messageDisplay.textContent = '';
             messageDisplay.className = '';
             restartBtn.style.display = 'none';
+            showBtn.style.display = 'inline-block';
             wikiInfo.style.display = 'none';
             wikiInfo.textContent = '';
 
@@ -667,6 +676,7 @@
                     if (gameOver) return;
                     var clickedKey = getRegionKey(feature);
                     var stats = loadStats();
+                    showBtn.style.display = 'none';
 
                     if (clickedKey === currentTarget) {
                         messageDisplay.textContent = t('win');
@@ -715,6 +725,35 @@
         }).addTo(map);
 
         restartBtn.addEventListener('click', resetGame);
+
+        showBtn.addEventListener('click', function () {
+            if (gameOver || !currentTarget) return;
+            gameOver = true;
+
+            // Подсветить загаданный район
+            geoLayer.eachLayer(function (l) {
+                if (getRegionKey(l.feature) === currentTarget && typeof l.setStyle === 'function') {
+                    l.setStyle({ color: '#27ae60', weight: 3, fillColor: '#27ae60', fillOpacity: 0.25 });
+                }
+            });
+
+            // Сообщение
+            messageDisplay.textContent = t('revealMsg') + regionDisplayName(getRegionName(currentTargetFeature)) + '?';
+            messageDisplay.className = 'lose';
+
+            // Записать в статистику как не угаданный
+            var stats = loadStats();
+            if (!stats[currentTarget]) stats[currentTarget] = { guessed: false, lastAsked: null };
+            stats[currentTarget].guessed = false;
+            stats[currentTarget].lastAsked = new Date().toISOString();
+            saveStats(stats);
+
+            loadWikiInfo(currentTarget);
+            updateScore();
+
+            showBtn.style.display = 'none';
+            restartBtn.style.display = 'inline-block';
+        });
 
         document.getElementById('modetest').addEventListener('click', function (e) {
             e.preventDefault();
