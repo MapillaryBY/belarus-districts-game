@@ -99,13 +99,43 @@
             text-align: left;
             display: none;
         }
+
+        /* Список районов */
+        #stats-panel {
+            display: none;
+            position: absolute;
+            top: 12px;
+            left: 12px;
+            z-index: 1000;
+            background: white;
+            padding: 10px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+            max-height: 85vh;
+            overflow-y: auto;
+            font-size: 13px;
+            width: 280px;
+        }
+
+        #stats-list a {
+            display: block;
+            padding: 2px 0;
+            color: #2c3e50;
+            text-decoration: none;
+            cursor: pointer;
+        }
+
+            #stats-list a:hover {
+                background: #ecf0f1;
+            }
     </style>
 </head>
 <body>
     <div id="game-panel">
         <div style="margin-bottom:8px; font-size:13px;">
             <a href="#" id="modetest" style="margin-right:10px; font-weight:bold;">Тест</a>
-            <a href="#" id="modedemo">Демо</a>
+            <a href="#" id="modedemo" style="margin-right:10px;">Демо</a>
+            <a href="#" id="modelist">Список</a>
         </div>
         <div id="prompt-text">Найдите на карте район:</div>
         <div id="target-region">Загрузка...</div>
@@ -120,6 +150,11 @@
         </div>
     </div>
     <div id="map"></div>
+
+    <div id="stats-panel">
+        <div style="font-weight:bold; margin-bottom:6px;">Районы</div>
+        <div id="stats-list"></div>
+    </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
@@ -398,8 +433,6 @@
             });
         }
 
-
-
         var STORAGE_KEY = 'belarus_rayons_stats_v2';
         var LANG_KEY = 'belarus_rayons_lang';
 
@@ -417,6 +450,7 @@
                 loading: 'Загрузка...',
                 modeTest: 'Тест',
                 modeDemo: 'Демо',
+                modeList: 'Список',
                 demoHint: 'Наведите курсор на район, чтобы увидеть название',
                 scoreGuessed: '✅ ',
                 scoreWrong: ' ❌ ',
@@ -435,6 +469,7 @@
                 loading: 'Загрузка...',
                 modeTest: 'Тэст',
                 modeDemo: 'Дэма',
+                modeList: 'Спіс',
                 demoHint: 'Навядзіце курсор на раён, каб убачыць назву',
                 scoreGuessed: '✅ ',
                 scoreWrong: ' ❌ ',
@@ -476,16 +511,11 @@
         var MODE_KEY = 'belarus_rayons_mode';
         var currentMode = localStorage.getItem(MODE_KEY) || 'test';
 
-        // ===== КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: универсальное получение имени =====
-        // Overpass Turbo экспортирует теги OSM в properties.name (или name:ru/name:be).
-        // Эта функция вытаскивает имя независимо от источника данных.
-        // Уникальный ключ района — поле name (не зависит от языка интерфейса)
         function getRegionKey(feature) {
             if (!feature || !feature.properties) return null;
             return feature.properties.name || null;
         }
 
-        // Отображаемое имя — name:ru или name:be в зависимости от языка, с fallback на name
         function getRegionName(feature) {
             if (!feature || !feature.properties) return null;
             var p = feature.properties;
@@ -495,20 +525,70 @@
             return p.name || null;
         }
 
-        // Для отображения в интерфейсе используем то же имя
         function regionDisplayName(regionName) {
             return regionName || 'Неизвестный район';
         }
 
+        // ===== Список районов =====
+        function renderList() {
+            var stats = loadStats();
+            var items = [];
+            geoLayer.eachLayer(function (l) {
+                var key = getRegionKey(l.feature);
+                if (!key) return;
+                var st = stats[key];
+                var status = 'never';
+                if (st && st.lastAsked) status = st.guessed ? 'guessed' : 'wrong';
+                items.push({
+                    key: key,
+                    name: getRegionName(l.feature) || key,
+                    status: status
+                });
+            });
+            items.sort(function (a, b) { return a.name.localeCompare(b.name); });
+
+            var html = '';
+            items.forEach(function (item) {
+                var icon = item.status === 'guessed' ? '🟢' : (item.status === 'wrong' ? '🔴' : '🟡');
+                html += '<a href="#" data-key="' + item.key.replace(/"/g, '&quot;') + '">' + icon + ' ' + item.name + '</a>';
+            });
+            document.getElementById('stats-list').innerHTML = html;
+        }
+
+        function highlightByStats() {
+            var stats = loadStats();
+            geoLayer.eachLayer(function (l) {
+                if (typeof l.setStyle !== 'function') return;
+                var key = getRegionKey(l.feature);
+                var st = stats[key];
+                var fill = '#f1c40f'; // жёлтый — не загадывался
+                if (st && st.lastAsked) {
+                    fill = st.guessed ? '#27ae60' : '#e74c3c'; // зелёный / красный
+                }
+                l.setStyle({ color: '#333', weight: 1, fillColor: fill, fillOpacity: 0.45 });
+            });
+        }
+
+        function findLayerByKey(key) {
+            var found = null;
+            geoLayer.eachLayer(function (l) {
+                if (getRegionKey(l.feature) === key) found = l;
+            });
+            return found;
+        }
+
         function applyMode() {
             var isDemo = currentMode === 'demo';
-            document.getElementById('modetest').style.fontWeight = isDemo ? 'normal' : 'bold';
+            var isList = currentMode === 'list';
+            document.getElementById('modetest').style.fontWeight = (!isDemo && !isList) ? 'bold' : 'normal';
             document.getElementById('modedemo').style.fontWeight = isDemo ? 'bold' : 'normal';
+            document.getElementById('modelist').style.fontWeight = isList ? 'bold' : 'normal';
+            document.getElementById('stats-panel').style.display = isList ? 'block' : 'none';
             document.getElementById('prompt-text').textContent = isDemo ? t('demoHint') : t('prompt');
-            document.getElementById('target-region').style.display = isDemo ? 'none' : 'block';
-            document.getElementById('score').style.display = isDemo ? 'none' : 'block';
+            document.getElementById('target-region').style.display = (isDemo || isList) ? 'none' : 'block';
+            document.getElementById('score').style.display = (isDemo || isList) ? 'none' : 'block';
             document.getElementById('restart-btn').style.display = 'none';
-            showBtn.style.display = isDemo ? 'none' : 'inline-block';
+            showBtn.style.display = (isDemo || isList) ? 'none' : 'inline-block';
 
             messageDisplay.textContent = '';
             messageDisplay.className = '';
@@ -520,7 +600,7 @@
                     if (typeof l.setStyle === 'function') {
                         l.setStyle({ color: '#ffffff', weight: 1, fillOpacity: 0 });
                     }
-                    if (isDemo && l.feature) {
+                    if ((isDemo || isList) && l.feature) {
                         l.unbindTooltip && l.unbindTooltip();
                         l.bindTooltip(regionDisplayName(getRegionName(l.feature)), {
                             permanent: false,
@@ -533,23 +613,22 @@
                 });
             }
 
-            if (!isDemo) {
+            if (isList) {
+                gameOver = true;
+                renderList();
+                highlightByStats();
+            } else if (!isDemo) {
                 resetGame();
             } else {
                 gameOver = true;
             }
         }
 
-        // WIKI_NAME_MAP больше не нужен для отображения (имена берутся из данных),
-        // но оставлен для загрузки Википедии, если вы захотите её вернуть.
         var WIKI_NAME_MAP = {};
 
         function loadWikiInfo(regionName) {
             wikiInfo.style.display = 'none';
             wikiInfo.textContent = '';
-            // Временно отключено, так как для новых данных нужен другой маппинг.
-            // Если захотите вернуть Википедию, нужно будет сопоставить name из OSM
-            // с названием статьи в Википедии.
         }
 
         function applyLanguage() {
@@ -558,6 +637,7 @@
             document.getElementById('restart-btn').textContent = t('restart');
             document.getElementById('modetest').textContent = t('modeTest');
             document.getElementById('modedemo').textContent = t('modeDemo');
+            document.getElementById('modelist').textContent = t('modeList');
             showBtn.textContent = t('show');
             updateScore();
             if (messageDisplay && messageDisplay.dataset.key) {
@@ -566,7 +646,7 @@
             if (currentTargetFeature && currentMode === 'test' && !gameOver) {
                 targetDisplay.textContent = regionDisplayName(getRegionName(currentTargetFeature));
             }
-            if (typeof applyMode === 'function' && currentMode === 'demo') {
+            if (typeof applyMode === 'function' && (currentMode === 'demo' || currentMode === 'list')) {
                 applyMode();
             }
         }
@@ -600,7 +680,6 @@
             scoreDisplay.textContent = t('scoreGuessed') + guessed + '  | ' + t('scoreWrong') + wrong + '  | ' + t('scoreTotal') + total;
         }
 
-        // ===== Сбор имён из данных =====
         function getAllRegionNames() {
             var items = [];
             geoLayer.eachLayer(function (l) {
@@ -632,7 +711,7 @@
         }
 
         function resetGame() {
-            if (currentMode === 'demo') {
+            if (currentMode === 'demo' || currentMode === 'list') {
                 applyMode();
                 return;
             }
@@ -674,7 +753,7 @@
             onEachFeature: function (feature, layer) {
                 layer.on('click', function (e) {
                     L.DomEvent.stopPropagation(e);
-                    if (currentMode === 'demo') return;
+                    if (currentMode === 'demo' || currentMode === 'list') return;
                     if (gameOver) return;
                     var clickedKey = getRegionKey(feature);
                     var stats = loadStats();
@@ -719,12 +798,23 @@
             }
         }).addTo(map);
 
-        // Слой райцентров (точки) — только для отображения, без setStyle
         var centersLayer = L.geoJSON(centersData, {
             pointToLayer: function (feature, latlng) {
                 return L.circleMarker(latlng, { radius: 3, color: '#ffcc00', fillOpacity: 0.8 });
             }
         }).addTo(map);
+
+        // Клик по строке списка — центрировать карту на районе
+        document.getElementById('stats-list').addEventListener('click', function (e) {
+            var target = e.target.closest('a[data-key]');
+            if (!target) return;
+            e.preventDefault();
+            var key = target.getAttribute('data-key');
+            var layer = findLayerByKey(key);
+            if (layer && layer.getBounds) {
+                map.fitBounds(layer.getBounds(), { padding: [30, 30] });
+            }
+        });
 
         restartBtn.addEventListener('click', resetGame);
 
@@ -732,18 +822,15 @@
             if (gameOver || !currentTarget) return;
             gameOver = true;
 
-            // Подсветить загаданный район
             geoLayer.eachLayer(function (l) {
                 if (getRegionKey(l.feature) === currentTarget && typeof l.setStyle === 'function') {
                     l.setStyle({ color: '#27ae60', weight: 3, fillColor: '#27ae60', fillOpacity: 0.25 });
                 }
             });
 
-            // Сообщение
             messageDisplay.textContent = t('revealMsg') + regionDisplayName(getRegionName(currentTargetFeature)) + '?';
             messageDisplay.className = 'lose';
 
-            // Записать в статистику как не угаданный
             var stats = loadStats();
             if (!stats[currentTarget]) stats[currentTarget] = { guessed: false, lastAsked: null };
             stats[currentTarget].guessed = false;
@@ -767,6 +854,13 @@
         document.getElementById('modedemo').addEventListener('click', function (e) {
             e.preventDefault();
             currentMode = 'demo';
+            localStorage.setItem(MODE_KEY, currentMode);
+            applyMode();
+        });
+
+        document.getElementById('modelist').addEventListener('click', function (e) {
+            e.preventDefault();
+            currentMode = 'list';
             localStorage.setItem(MODE_KEY, currentMode);
             applyMode();
         });
