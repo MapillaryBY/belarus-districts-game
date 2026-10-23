@@ -1132,8 +1132,9 @@
             var layer = findLayerByKey(key);
             if (layer && layer.getBounds) {
                 map.fitBounds(layer.getBounds(), { padding: [30, 30] });
+                showDistrictInfo(key, layer.feature);
             }
-            showDistrictInfo(target, target);
+            
         });
 
         restartBtn.addEventListener('click', resetGame);
