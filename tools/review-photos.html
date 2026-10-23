@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Проверка кандидатов фотографий</title>
+    <style>
+        :root { color-scheme: light; font-family: system-ui, sans-serif; }
+        body { margin: 0; background: #f4f6f8; color: #1f2933; }
+        header { position: sticky; top: 0; z-index: 1; padding: 16px 24px; background: #2f6f4f; color: white; }
+        h1 { margin: 0 0 6px; font-size: 1.4rem; }
+        p { margin: 0; }
+        main { max-width: 1200px; margin: 0 auto; padding: 24px; }
+        .status { margin-bottom: 18px; color: #52616b; }
+        .card { margin-bottom: 20px; padding: 18px; background: white; border-radius: 10px; box-shadow: 0 1px 4px #0002; }
+        h2 { margin: 0; font-size: 1.1rem; }
+        .query { margin-top: 5px; color: #52616b; }
+        button { padding: 9px 13px; border: 0; border-radius: 5px; background: #2f6f4f; color: white; font: inherit; cursor: pointer; }
+        button.secondary { background: #6b7785; }
+        input[type="url"] { width: min(100%, 720px); padding: 9px; margin: 14px 8px 0 0; font: inherit; }
+        .empty { padding: 24px; background: white; border-radius: 10px; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Проверка фотографий</h1>
+        <p>Выберите подходящие изображения. Решения сохраняются в <code>photo-approvals.json</code>.</p>
+    </header>
+    <main>
+        <p class="status">Откройте <code>photo-candidates.json</code>: <input id="candidate-file" type="file" accept="application/json">.</p>
+        <p id="status" class="status">Выберите файл кандидатов.</p>
+        <div id="cards"></div>
+    </main>
+    <script>
+        const cards = document.getElementById('cards');
+        const status = document.getElementById('status');
+        const candidateFile = document.getElementById('candidate-file');
+        let approvals = {};
+
+        async function readJson(file) {
+            return JSON.parse(await file.text());
+        }
+
+        function downloadApprovals() {
+            const data = JSON.stringify(approvals, null, 2);
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(new Blob([data], { type: 'application/json' }));
+            link.download = 'photo-approvals.json';
+            link.click();
+            URL.revokeObjectURL(link.href);
+        }
+
+        function render(candidates) {
+            cards.innerHTML = '';
+            status.textContent = `Объектов на проверке: ${candidates.length}. Выбрано фото: ${Object.values(approvals).flat().length}.`;
+            if (!candidates.length) {
+                cards.innerHTML = '<p class="empty">Нет кандидатов. Сначала запустите fill-photos-icrawler.py.</p>';
+                return;
+            }
+
+            for (const item of candidates) {
+                const card = document.createElement('article');
+                card.className = 'card';
+                card.innerHTML = `<h2>${item.name}</h2><p class="query">Запрос: ${item.query}</p><p><a href="${item.search_url}" target="_blank" rel="noopener">Открыть поиск Bing</a></p>`;
+                const input = document.createElement('input');
+                input.type = 'url';
+                input.placeholder = 'Вставьте URL выбранного изображения';
+                input.value = (approvals[item.id] || [])[0] || '';
+                const save = document.createElement('button');
+                save.textContent = 'Сохранить URL';
+                save.addEventListener('click', () => {
+                    if (!/^https?:\/\//i.test(input.value.trim())) return;
+                    approvals[item.id] = [input.value.trim()];
+                    downloadApprovals();
+                    render(candidates);
+                });
+
+                const skip = document.createElement('button');
+                skip.className = 'secondary';
+                skip.textContent = 'Пропустить объект';
+                skip.addEventListener('click', () => {
+                    delete approvals[item.id];
+                    downloadApprovals();
+                    render(candidates);
+                });
+                card.append(input, save, skip);
+                cards.append(card);
+            }
+        }
+
+        candidateFile.addEventListener('change', async () => {
+            const [file] = candidateFile.files;
+            if (!file) return;
+            try {
+                approvals = {};
+                render(await readJson(file));
+            } catch {
+                status.textContent = 'Не удалось прочитать выбранный JSON-файл.';
+            }
+        });
+    </script>
+</body>
+</html>
